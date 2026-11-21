@@ -1,10 +1,967 @@
-<!doctype html><html lang="es"><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>Cena de Amigos 2026</title><style>
-*{box-sizing:border-box}body{margin:0;background:#0f172a;color:#f8fafc;font:16px system-ui}main{max-width:800px;margin:auto;padding:16px}h1,h2{margin:12px 0}header{text-align:center;padding:20px}section{background:#1e293b;border-radius:16px;padding:16px;margin:14px 0}button,input,select{font:inherit;border-radius:9px;padding:12px;border:1px solid #64748b}button{background:#334155;color:white;cursor:pointer}input,select{background:#0f172a;color:white;width:100%;margin:5px 0}button:disabled{opacity:.45}button.on{background:#166534} .grid{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:5px}.grid button{padding:8px 0;min-height:55px}.grid small{display:block} .muted{color:#cbd5e1} .gold{color:#fbbf24} .row{display:flex;gap:8px;flex-wrap:wrap} [hidden]{display:none!important} #msg{white-space:pre-wrap;color:#fbbf24} p{overflow-wrap:anywhere}
-</style><main><header><h1>🍽️ Cena de Amigos 2026</h1><div class="muted">Diez amigos, una fecha</div></header><p id="msg" role="status"></p><section id="login"><h2>Entrar</h2><form id="loginForm"><label>Tu nombre<select id="nombre"></select></label><label>Tu PIN<input id="pin" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" required></label><button>Entrar</button></form></section><div id="app" hidden><section><div class="row"><strong id="saludo"></strong><button id="refresh">Actualizar</button><button id="logout">Salir</button></div><h2 class="gold">Fecha oficial</h2><div id="oficial"></div></section><section><h2>📅 Disponibilidad</h2><p class="muted">Pulsa los días que puedes asistir. Verde = puedes. El número indica cuántos amigos pueden.</p><div id="cal"></div><p id="detalle"></p><h3>Mejores fechas</h3><div id="ranking"></div></section><section><h2>🍴 Restaurantes</h2><form id="proponer"><input type="date" id="pd" required><input id="pr" maxlength="200" placeholder="Restaurante y detalles" required><button>Proponer</button></form><div id="propuestas"></div></section><section><h2>🎁 Amigo invisible</h2><p id="votos"></p><div class="row"><button id="si">Sí</button><button id="no">No</button></div><p id="resultado"></p><button id="regalo">Ver mi destinatario</button><p id="destino"></p></section><section id="admin" hidden><h2>👑 Administración</h2><form id="fijar"><input type="date" id="fd" required><input id="fl" maxlength="250" placeholder="Restaurante y hora" required><button>Confirmar cena</button></form><p><button id="sortear">Realizar sorteo</button></p><h3>Restablecer PIN</h3><form id="reset"><select id="rn"></select><input id="rp" type="password" inputmode="numeric" pattern="[0-9]{4}" maxlength="4" placeholder="Nuevo PIN" required><button>Cambiar PIN</button></form></section></div></main><script>
-const URLBASE='https://fpslpkkjyuvcojwhzrak.supabase.co', KEY='eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwc2xwa2tqeXV2Y29qd2h6cmFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUxNjk5MTcsImV4cCI6MjExMDc0NTkxN30.xIX1rh5CwVaLMOAaH6FTrHFfAhbHD_JsuqzORMWfQfU';
-const names=['Nacho','Juan','Manolo','Pablo','Bufi','Niño','Tijuana','Mejicano','Agustín','Kike'], $=id=>document.getElementById(id);let session=null, days=[], busy=false;try{session=JSON.parse(sessionStorage.getItem('cena'))}catch{};for(const id of ['nombre','rn'])for(const n of names)$(id).add(new Option(n,n));const today=()=>new Intl.DateTimeFormat('sv-SE',{timeZone:'Europe/Madrid'}).format(new Date());for(const id of ['pd','fd']){$(id).min='2026-11-20';$(id).max='2026-12-31'}
-async function rpc(n,p={}){const r=await fetch(URLBASE+'/rest/v1/rpc/'+n,{method:'POST',headers:{apikey:KEY,Authorization:'Bearer '+KEY,'Content-Type':'application/json'},body:JSON.stringify(p)});const v=await r.json();if(!r.ok)throw Error(v.message||'Error de conexión');return v}const call=(n,p={})=>rpc(n,{p_token:session.token,...p});function show(){ $('login').hidden=!!session;$('app').hidden=!session;$('admin').hidden=!session?.admin;$('saludo').textContent=session?'Hola, '+session.nombre:''}function clear(){session=null;sessionStorage.removeItem('cena');$('destino').textContent='';show()}async function act(fn){if(busy)return;busy=true;$('msg').textContent='';try{await fn()}catch(e){$('msg').textContent=e.message;if(/Sesion no valida/i.test(e.message))clear()}finally{busy=false}}function text(parent,s){let p=document.createElement('p');p.textContent=s;parent.append(p)}function fmt(d){return new Date(d+'T12:00:00').toLocaleDateString('es-ES',{weekday:'long',day:'numeric',month:'long'})}
-function renderCal(){const root=$('cal');root.replaceChildren();const count=d=>days.filter(x=>x.dia===d);let ranked=[];for(const m of [11,12]){let h=document.createElement('h3');h.textContent=m===11?'Noviembre':'Diciembre';root.append(h);let g=document.createElement('div');g.className='grid';root.append(g);for(const w of ['L','M','X','J','V','S','D']){let s=document.createElement('span');s.textContent=w;g.append(s)}for(let i=0;i<(new Date(2026,m-1,1).getDay()+6)%7;i++)g.append(document.createElement('span'));for(let i=1;i<=new Date(2026,m,0).getDate();i++){let d=`2026-${m}-${String(i).padStart(2,'0')}`,a=count(d),mine=a.some(x=>x.nombre===session.nombre),b=document.createElement('button');b.textContent=i;let s=document.createElement('small');s.textContent=a.length+'/10';b.append(s);b.className=mine?'on':'';b.disabled=d<'2026-11-20'||d<today();b.setAttribute('aria-pressed',mine);b.onclick=()=>act(async()=>{await call('marcar_dia',{p_dia:d,p_disponible:!mine});days=await call('consultar_calendario');renderCal();$('detalle').textContent=fmt(d)+': '+(count(d).map(x=>x.nombre).join(', ')||'Nadie disponible')});g.append(b);if(!b.disabled&&a.length)ranked.push({d,a})}}$('ranking').replaceChildren();ranked.sort((a,b)=>b.a.length-a.a.length||a.d.localeCompare(b.d));for(const x of ranked.slice(0,10))text($('ranking'),fmt(x.d)+' · '+x.a.length+'/10 · '+x.a.map(y=>y.nombre).join(', '));if(!ranked.length)text($('ranking'),'Todavía no hay coincidencias.');}
-async function refresh(){let [c,v,z]=await Promise.all([call('consultar_calendario'),call('consultar_votacion'),call('consultar_cena')]);days=c;renderCal();$('oficial').textContent=z.fecha_oficial?fmt(z.fecha_oficial.dia)+' · '+z.fecha_oficial.lugar:'Todavía sin confirmar';$('propuestas').replaceChildren();for(const p of z.propuestas)text($('propuestas'),fmt(p.dia)+' · '+p.restaurante+' — '+p.nombre);$('votos').textContent=v.total+'/10 han votado. Tu voto: '+(v.mi_voto===null?'Pendiente':v.mi_voto?'Sí':'No');$('si').disabled=$('no').disabled=v.finalizada;$('si').className=v.mi_voto===true?'on':'';$('no').className=v.mi_voto===false?'on':'';$('resultado').textContent=v.finalizada?'Sí: '+v.si+' · No: '+v.no+(v.si>5?' · Aprobado':' · No aprobado'):'Resultados ocultos hasta finalizar';$('sortear').disabled=!(v.finalizada&&v.si>5)}
-$('loginForm').onsubmit=e=>{e.preventDefault();act(async()=>{let v=await rpc('iniciar_sesion_pin',{p_nombre:$('nombre').value,p_pin:$('pin').value});$('pin').value='';if(!v.ok)throw Error(v.mensaje||'Acceso incorrecto');session=v;sessionStorage.setItem('cena',JSON.stringify(v));show();await refresh()})};$('refresh').onclick=()=>act(refresh);$('logout').onclick=()=>act(async()=>{await call('cerrar_sesion');clear()});for(const [id,v] of [['si',true],['no',false]])$(id).onclick=()=>act(async()=>{await call('votar_invisible',{p_voto:v});await refresh()});$('proponer').onsubmit=e=>{e.preventDefault();act(async()=>{await call('proponer_restaurante',{p_dia:$('pd').value,p_restaurante:$('pr').value});$('pr').value='';await refresh()})};$('fijar').onsubmit=e=>{e.preventDefault();act(async()=>{await call('fijar_fecha_oficial',{p_dia:$('fd').value,p_lugar:$('fl').value});await refresh()})};$('sortear').onclick=()=>{if(confirm('¿Realizar el sorteo definitivo?'))act(async()=>{await call('realizar_sorteo');$('msg').textContent='Sorteo realizado'})};$('regalo').onclick=()=>act(async()=>{if($('destino').textContent){$('destino').textContent='';return}let d=await call('consultar_regalo');$('destino').textContent=d?'Te toca regalar a: '+d:'Sorteo pendiente'});$('reset').onsubmit=e=>{e.preventDefault();act(async()=>{await call('restablecer_pin',{p_nombre:$('rn').value,p_nuevo_pin:$('rp').value});$('rp').value='';$('msg').textContent='PIN cambiado';if($('rn').value===session.nombre)clear()})};show();if(session)act(refresh);
-</script></html>
+
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="theme-color" content="#0f172a">
+  <title>Cena de Amigos 2026</title>
+
+  <script src="https://unpkg.com/vue@3/dist/vue.global.prod.js"></script>
+
+  <style>
+    :root {
+      font-family: system-ui, Arial, sans-serif;
+      color: #f8fafc;
+      background: #0f172a;
+    }
+    * { box-sizing: border-box; }
+    body { margin: 0; }
+    [v-cloak] { display: none; }
+
+    main {
+      max-width: 850px;
+      margin: auto;
+      padding: 16px;
+    }
+    header {
+      text-align: center;
+      padding: 22px 10px;
+    }
+    h1 { font-size: 30px; margin: 8px 0; }
+    h2 { font-size: 22px; margin: 8px 0 16px; }
+    h3 { margin: 18px 0 10px; }
+
+    section {
+      background: #1e293b;
+      border: 1px solid #334155;
+      border-radius: 16px;
+      padding: 18px;
+      margin: 14px 0;
+    }
+
+    button, input, select {
+      font: inherit;
+      border-radius: 9px;
+      padding: 12px;
+      border: 1px solid #64748b;
+    }
+    button {
+      background: #334155;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled {
+      opacity: .4;
+      cursor: not-allowed;
+    }
+    button:hover:not(:disabled) { filter: brightness(1.15); }
+
+    input, select {
+      background: #0f172a;
+      color: white;
+      width: 100%;
+      margin: 5px 0 12px;
+    }
+    label { display: block; margin: 8px 0; }
+
+    .row {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+    .row > button { flex: 1; }
+    .muted { color: #cbd5e1; }
+    .gold { color: #fbbf24; }
+    .green { background: #166534; }
+    .red { background: #991b1b; }
+    .blue { background: #1d4ed8; }
+    .notice {
+      background: #0f172a;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 12px 0;
+    }
+    .error {
+      color: #fbbf24;
+      white-space: pre-wrap;
+      overflow-wrap: anywhere;
+    }
+    .success { color: #86efac; }
+    .divider {
+      border: 0;
+      border-top: 1px solid #475569;
+      margin: 22px 0;
+    }
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 5px;
+    }
+    .grid button {
+      padding: 8px 0;
+      min-height: 56px;
+      min-width: 0;
+    }
+    .grid small {
+      display: block;
+      font-size: 11px;
+      margin-top: 4px;
+    }
+    .weekday {
+      text-align: center;
+      color: #cbd5e1;
+      padding: 8px 0;
+      font-size: 13px;
+    }
+    .day-on { background: #166534; }
+    .full { outline: 2px solid #fbbf24; }
+
+    .item {
+      background: #0f172a;
+      border-radius: 10px;
+      padding: 12px;
+      margin: 8px 0;
+      overflow-wrap: anywhere;
+    }
+    .admin-actions {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 9px;
+    }
+    .admin-actions button { width: 100%; }
+    .admin-actions .wide { grid-column: 1 / -1; }
+    .admin-warning {
+      color: #fecaca;
+      font-size: 14px;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 8px;
+      background: #92400e;
+      border-radius: 8px;
+      font-size: 12px;
+    }
+    @media(max-width: 480px) {
+      main { padding: 10px; }
+      section { padding: 14px; }
+      h1 { font-size: 26px; }
+      .grid { gap: 3px; }
+      .grid button { padding: 7px 0; }
+    }
+  </style>
+</head>
+
+<body>
+<div id="app" v-cloak>
+  <main>
+    <header>
+      <h1>🍽️ Cena de Amigos 2026</h1>
+      <p class="muted">Diez amigos, una fecha</p>
+    </header>
+
+    <p v-if="mensaje"
+       :class="tipoMensaje === 'error' ? 'error' : 'success'"
+       role="status">
+      {{ mensaje }}
+    </p>
+
+    <!-- ACCESO -->
+    <section v-if="!sesion">
+      <h2>🔐 Entrar</h2>
+      <form @submit.prevent="entrar">
+        <label>
+          Tu nombre
+          <select v-model="nombre" required>
+            <option v-for="n in nombres" :key="n" :value="n">
+              {{ n }}
+            </option>
+          </select>
+        </label>
+
+        <label>
+          Tu PIN
+          <input
+            v-model="pin"
+            type="password"
+            inputmode="numeric"
+            pattern="[0-9]{4}"
+            maxlength="4"
+            autocomplete="off"
+            required>
+        </label>
+
+        <button class="blue" :disabled="ocupado">
+          Entrar
+        </button>
+      </form>
+    </section>
+
+    <template v-else>
+      <!-- CABECERA -->
+      <section>
+        <div class="row">
+          <strong>Hola, {{ sesion.nombre }}</strong>
+          <span v-if="sesion.admin" class="badge">
+            👑 Administrador
+          </span>
+        </div>
+
+        <p class="row">
+          <button @click="actualizar" :disabled="ocupado">
+            🔄 Actualizar
+          </button>
+          <button @click="salir" :disabled="ocupado">
+            Salir
+          </button>
+        </p>
+
+        <h2 class="gold">📍 Fecha oficial</h2>
+
+        <div v-if="fechaOficial" class="notice">
+          <strong>{{ formato(fechaOficial.dia) }}</strong>
+          <p>{{ fechaOficial.lugar }}</p>
+        </div>
+
+        <p v-else class="muted">
+          Todavía no hay fecha confirmada.
+        </p>
+      </section>
+
+      <!-- CALENDARIO -->
+      <section>
+        <h2>📅 Disponibilidad</h2>
+
+        <p class="muted">
+          Pulsa los días en los que puedes ir.
+          Verde significa que has marcado ese día.
+          El número indica cuántos amigos pueden asistir.
+        </p>
+
+        <div v-for="mes in meses" :key="mes.numero">
+          <h3>{{ mes.nombre }}</h3>
+
+          <div class="grid">
+            <span v-for="dia in semana"
+                  :key="dia"
+                  class="weekday">
+              {{ dia }}
+            </span>
+
+            <span v-for="i in mes.huecos"
+                  :key="'h'+i">
+            </span>
+
+            <button
+              v-for="dia in mes.dias"
+              :key="dia.fecha"
+              :class="{
+                'day-on': disponibleYo(dia.fecha),
+                'full': contar(dia.fecha) === 10
+              }"
+              :disabled="ocupado || dia.fecha < '2026-11-20' || dia.fecha < hoy"
+              :aria-pressed="disponibleYo(dia.fecha)"
+              @click="marcar(dia.fecha)">
+
+              {{ dia.numero }}
+              <small>{{ contar(dia.fecha) }}/10</small>
+            </button>
+          </div>
+        </div>
+
+        <div v-if="detalleFecha" class="notice">
+          <strong>{{ formato(detalleFecha) }}</strong>
+          <p>
+            {{ amigosDisponibles(detalleFecha).join(', ') || 'Nadie disponible' }}
+          </p>
+        </div>
+
+        <h3>🏆 Mejores fechas</h3>
+
+        <div v-for="f in mejoresFechas"
+             :key="f.fecha"
+             class="item">
+          <strong>{{ formato(f.fecha) }}</strong>
+          <span class="gold"> · {{ f.total }}/10</span>
+          <p class="muted">
+            {{ amigosDisponibles(f.fecha).join(', ') }}
+          </p>
+        </div>
+
+        <p v-if="!mejoresFechas.length" class="muted">
+          Todavía no hay coincidencias.
+        </p>
+      </section>
+
+      <!-- RESTAURANTES -->
+      <section>
+        <h2>🍴 Restaurantes</h2>
+
+        <form @submit.prevent="proponer">
+          <label>
+            Fecha propuesta
+            <input type="date"
+                   v-model="fechaPropuesta"
+                   min="2026-11-20"
+                   max="2026-12-31"
+                   required>
+          </label>
+
+          <label>
+            Restaurante y detalles
+            <input
+              v-model="restaurante"
+              maxlength="200"
+              placeholder="Ej.: Cena Paco, 21:30"
+              required>
+          </label>
+
+          <button class="blue" :disabled="ocupado">
+            Añadir propuesta
+          </button>
+        </form>
+
+        <h3>Propuestas registradas</h3>
+
+        <div v-for="(p, i) in propuestas"
+             :key="i"
+             class="item">
+          <strong>{{ formato(p.dia) }}</strong>
+          <p>{{ p.restaurante }}</p>
+          <small class="muted">Propuesto por {{ p.nombre }}</small>
+        </div>
+
+        <p v-if="!propuestas.length" class="muted">
+          Todavía no hay restaurantes propuestos.
+        </p>
+      </section>
+
+      <!-- AMIGO INVISIBLE -->
+      <section>
+        <h2>🎁 Amigo invisible</h2>
+
+        <p>
+          Han votado:
+          <strong>{{ votacion.total || 0 }}/10</strong>
+        </p>
+
+        <p>
+          Tu voto:
+          <strong>
+            {{ votacion.mi_voto === null || votacion.mi_voto === undefined
+              ? 'Pendiente'
+              : votacion.mi_voto ? 'Sí' : 'No' }}
+          </strong>
+        </p>
+
+        <div class="row">
+          <button
+            :class="{green: votacion.mi_voto === true}"
+            :disabled="ocupado || votacion.finalizada"
+            @click="votar(true)">
+            👍 Sí
+          </button>
+
+          <button
+            :class="{red: votacion.mi_voto === false}"
+            :disabled="ocupado || votacion.finalizada"
+            @click="votar(false)">
+            👎 No
+          </button>
+        </div>
+
+        <div class="notice">
+          <template v-if="votacion.finalizada">
+            <p>
+              Sí: {{ votacion.si }} · No: {{ votacion.no }}
+            </p>
+            <strong>
+              {{ votacion.si > 5 ? 'Propuesta aprobada' : 'Propuesta no aprobada' }}
+            </strong>
+          </template>
+
+          <p v-else>
+            Los resultados permanecerán ocultos
+            hasta que termine la votación.
+          </p>
+        </div>
+
+        <button @click="verRegalo" :disabled="ocupado">
+          {{ destinatario ? 'Ocultar destinatario' : '🎁 Ver mi destinatario' }}
+        </button>
+
+        <div v-if="destinatario" class="notice gold">
+          Te toca regalar a:
+          <strong>{{ destinatario }}</strong>
+        </div>
+
+        <p v-if="regaloPendiente" class="muted">
+          El sorteo todavía no se ha realizado.
+        </p>
+      </section>
+
+      <!-- ADMINISTRACIÓN -->
+      <section v-if="sesion.admin">
+        <h2>👑 Administración de Nacho</h2>
+
+        <h3>📍 Confirmar cena</h3>
+
+        <form @submit.prevent="fijarFecha">
+          <label>
+            Fecha definitiva
+            <input type="date"
+                   v-model="fechaDefinitiva"
+                   min="2026-11-20"
+                   max="2026-12-31"
+                   required>
+          </label>
+
+          <label>
+            Restaurante y hora
+            <input
+              v-model="lugarDefinitivo"
+              maxlength="250"
+              placeholder="Restaurante y hora"
+              required>
+          </label>
+
+          <button class="blue" :disabled="ocupado">
+            Confirmar cena
+          </button>
+        </form>
+
+        <hr class="divider">
+
+        <h3>🎁 Sorteo del amigo invisible</h3>
+
+        <p class="muted">
+          El sorteo solo se puede realizar cuando
+          hayan votado los diez amigos y gane el Sí.
+        </p>
+
+        <button
+          class="green"
+          :disabled="ocupado || !votacion.finalizada || votacion.si <= 5"
+          @click="realizarSorteo">
+          Realizar sorteo
+        </button>
+
+        <hr class="divider">
+
+        <h3>🔐 Restablecer PIN</h3>
+
+        <form @submit.prevent="cambiarPin">
+          <label>
+            Participante
+            <select v-model="nombreReset">
+              <option v-for="n in nombres" :key="n">
+                {{ n }}
+              </option>
+            </select>
+          </label>
+
+          <label>
+            Nuevo PIN
+            <input
+              v-model="nuevoPin"
+              type="password"
+              inputmode="numeric"
+              pattern="[0-9]{4}"
+              maxlength="4"
+              autocomplete="off"
+              required>
+          </label>
+
+          <button :disabled="ocupado">
+            Cambiar PIN
+          </button>
+        </form>
+
+        <hr class="divider">
+
+        <!-- NUEVA GESTIÓN DE DATOS -->
+        <h3>🗑️ Gestión de datos</h3>
+
+        <p class="muted">
+          Borra los datos de las pruebas sin eliminar
+          los participantes ni sus PIN.
+        </p>
+
+        <div class="admin-actions">
+          <button :disabled="ocupado"
+                  @click="limpiar('propuestas')">
+            🍴 Borrar restaurantes
+          </button>
+
+          <button :disabled="ocupado"
+                  @click="limpiar('fecha')">
+            📍 Anular fecha oficial
+          </button>
+
+          <button :disabled="ocupado"
+                  @click="limpiar('votos')">
+            🎁 Reiniciar votación
+          </button>
+
+          <button :disabled="ocupado"
+                  @click="limpiar('calendario')">
+            📅 Limpiar calendario
+          </button>
+
+          <button
+            class="red wide"
+            :disabled="ocupado"
+            @click="limpiar('todo')">
+            🗑️ BORRAR TODOS LOS DATOS
+          </button>
+        </div>
+
+        <p class="admin-warning">
+          ⚠️ Los borrados son definitivos. Se pedirá
+          confirmación antes de ejecutarlos.
+          Reiniciar los votos también anula el sorteo.
+        </p>
+      </section>
+
+      <footer style="text-align:center;padding:24px"
+              class="muted">
+        Cena de Amigos 2026 · Grupo privado
+      </footer>
+    </template>
+  </main>
+</div>
+
+<script>
+const { createApp } = Vue;
+
+const URLBASE =
+  'https://fpslpkkjyuvcojwhzrak.supabase.co';
+
+const KEY =
+  'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImZwc2xwa2tqeXV2Y29qd2h6cmFrIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTUxNjk5MTcsImV4cCI6MjExMDc0NTkxN30.xIX1rh5CwVaLMOAaH6FTrHFfAhbHD_JsuqzORMWfQfU';
+
+createApp({
+  data() {
+    let guardada = null;
+    try {
+      guardada = JSON.parse(
+        sessionStorage.getItem('cena')
+      );
+    } catch (e) {}
+
+    return {
+      nombres: [
+        'Nacho', 'Juan', 'Manolo', 'Pablo',
+        'Bufi', 'Niño', 'Tijuana',
+        'Mejicano', 'Agustín', 'Kike'
+      ],
+      semana: ['L', 'M', 'X', 'J', 'V', 'S', 'D'],
+
+      sesion: guardada,
+      nombre: 'Nacho',
+      pin: '',
+      ocupado: false,
+      mensaje: '',
+      tipoMensaje: 'error',
+
+      calendario: [],
+      propuestas: [],
+      fechaOficial: null,
+      votacion: {
+        total: 0,
+        mi_voto: null,
+        finalizada: false,
+        si: 0,
+        no: 0
+      },
+
+      detalleFecha: '',
+      fechaPropuesta: '',
+      restaurante: '',
+      fechaDefinitiva: '',
+      lugarDefinitivo: '',
+
+      destinatario: '',
+      regaloPendiente: false,
+
+      nombreReset: 'Nacho',
+      nuevoPin: ''
+    };
+  },
+
+  computed: {
+    hoy() {
+      return new Intl.DateTimeFormat('sv-SE', {
+        timeZone: 'Europe/Madrid'
+      }).format(new Date());
+    },
+
+    meses() {
+      return [11, 12].map(m => {
+        const total = new Date(2026, m, 0).getDate();
+        const huecos =
+          (new Date(2026, m - 1, 1).getDay() + 6) % 7;
+
+        const dias = [];
+
+        for (let i = 1; i <= total; i++) {
+          dias.push({
+            numero: i,
+            fecha: '2026-' +
+              String(m).padStart(2, '0') + '-' +
+              String(i).padStart(2, '0')
+          });
+        }
+
+        return {
+          numero: m,
+          nombre: m === 11 ? 'Noviembre 2026' : 'Diciembre 2026',
+          huecos,
+          dias
+        };
+      });
+    },
+
+    mejoresFechas() {
+      const fechas = new Set(
+        this.calendario.map(x => x.dia)
+      );
+
+      return [...fechas]
+        .filter(f => f >= '2026-11-20' && f >= this.hoy)
+        .map(fecha => ({
+          fecha,
+          total: this.contar(fecha)
+        }))
+        .filter(x => x.total > 0)
+        .sort((a, b) =>
+          b.total - a.total ||
+          a.fecha.localeCompare(b.fecha)
+        )
+        .slice(0, 10);
+    }
+  },
+
+  methods: {
+    async rpc(nombre, parametros = {}) {
+      const respuesta = await fetch(
+        URLBASE + '/rest/v1/rpc/' + nombre,
+        {
+          method: 'POST',
+          headers: {
+            apikey: KEY,
+            Authorization: 'Bearer ' + KEY,
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(parametros)
+        }
+      );
+
+      const texto = await respuesta.text();
+      let datos;
+
+      try {
+        datos = texto ? JSON.parse(texto) : null;
+      } catch {
+        throw new Error('Respuesta inesperada del servidor');
+      }
+
+      if (!respuesta.ok) {
+        throw new Error(
+          datos?.message || 'Error de conexión'
+        );
+      }
+
+      return datos;
+    },
+
+    async call(nombre, parametros = {}) {
+      if (!this.sesion?.token) {
+        throw new Error('Sesión no válida');
+      }
+
+      return this.rpc(nombre, {
+        p_token: this.sesion.token,
+        ...parametros
+      });
+    },
+
+    async ejecutar(accion) {
+      if (this.ocupado) return;
+
+      this.ocupado = true;
+      this.mensaje = '';
+
+      try {
+        await accion();
+      } catch (error) {
+        this.mensaje = error.message;
+        this.tipoMensaje = 'error';
+
+        if (/Sesion no valida|Sesión no válida/i.test(error.message)) {
+          this.borrarSesionLocal();
+        }
+      } finally {
+        this.ocupado = false;
+      }
+    },
+
+    informar(texto) {
+      this.mensaje = texto;
+      this.tipoMensaje = 'success';
+    },
+
+    borrarSesionLocal() {
+      this.sesion = null;
+      sessionStorage.removeItem('cena');
+      this.destinatario = '';
+      this.regaloPendiente = false;
+      this.pin = '';
+    },
+
+    async entrar() {
+      await this.ejecutar(async () => {
+        const resultado = await this.rpc(
+          'iniciar_sesion_pin',
+          {
+            p_nombre: this.nombre,
+            p_pin: this.pin
+          }
+        );
+
+        this.pin = '';
+
+        if (!resultado.ok) {
+          throw new Error(
+            resultado.mensaje || 'Acceso incorrecto'
+          );
+        }
+
+        this.sesion = resultado;
+        sessionStorage.setItem(
+          'cena',
+          JSON.stringify(resultado)
+        );
+
+        await this.cargarDatos();
+      });
+    },
+
+    async salir() {
+      await this.ejecutar(async () => {
+        await this.call('cerrar_sesion');
+        this.borrarSesionLocal();
+        this.informar('Sesión cerrada correctamente');
+      });
+    },
+
+    async cargarDatos() {
+      const [calendario, votacion, cena] =
+        await Promise.all([
+          this.call('consultar_calendario'),
+          this.call('consultar_votacion'),
+          this.call('consultar_cena')
+        ]);
+
+      this.calendario = calendario || [];
+      this.votacion = votacion || {};
+      this.propuestas = cena?.propuestas || [];
+      this.fechaOficial = cena?.fecha_oficial || null;
+    },
+
+    async actualizar() {
+      await this.ejecutar(async () => {
+        await this.cargarDatos();
+        this.informar('Datos actualizados');
+      });
+    },
+
+    formato(fecha) {
+      if (!fecha) return '';
+
+      return new Date(
+        fecha + 'T12:00:00'
+      ).toLocaleDateString('es-ES', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long'
+      });
+    },
+
+    amigosDisponibles(fecha) {
+      return this.calendario
+        .filter(x => x.dia === fecha)
+        .map(x => x.nombre);
+    },
+
+    contar(fecha) {
+      return this.amigosDisponibles(fecha).length;
+    },
+
+    disponibleYo(fecha) {
+      return this.calendario.some(x =>
+        x.dia === fecha &&
+        x.nombre === this.sesion?.nombre
+      );
+    },
+
+    async marcar(fecha) {
+      const disponible = !this.disponibleYo(fecha);
+
+      await this.ejecutar(async () => {
+        await this.call('marcar_dia', {
+          p_dia: fecha,
+          p_disponible: disponible
+        });
+
+        this.calendario =
+          await this.call('consultar_calendario');
+
+        this.detalleFecha = fecha;
+      });
+    },
+
+    async proponer() {
+      await this.ejecutar(async () => {
+        await this.call('proponer_restaurante', {
+          p_dia: this.fechaPropuesta,
+          p_restaurante: this.restaurante.trim()
+        });
+
+        this.restaurante = '';
+        await this.cargarDatos();
+        this.informar('Restaurante propuesto correctamente');
+      });
+    },
+
+    async votar(valor) {
+      await this.ejecutar(async () => {
+        await this.call('votar_invisible', {
+          p_voto: valor
+        });
+
+        await this.cargarDatos();
+        this.informar('Voto registrado');
+      });
+    },
+
+    async verRegalo() {
+      if (this.destinatario) {
+        this.destinatario = '';
+        return;
+      }
+
+      await this.ejecutar(async () => {
+        const resultado =
+          await this.call('consultar_regalo');
+
+        this.destinatario = resultado || '';
+        this.regaloPendiente = !resultado;
+      });
+    },
+
+    async fijarFecha() {
+      await this.ejecutar(async () => {
+        await this.call('fijar_fecha_oficial', {
+          p_dia: this.fechaDefinitiva,
+          p_lugar: this.lugarDefinitivo.trim()
+        });
+
+        await this.cargarDatos();
+        this.informar('Fecha oficial confirmada');
+      });
+    },
+
+    async realizarSorteo() {
+      if (!confirm(
+        '¿Realizar el sorteo definitivo del amigo invisible?'
+      )) return;
+
+      await this.ejecutar(async () => {
+        await this.call('realizar_sorteo');
+        await this.cargarDatos();
+        this.informar('Sorteo realizado correctamente');
+      });
+    },
+
+    async cambiarPin() {
+      await this.ejecutar(async () => {
+        await this.call('restablecer_pin', {
+          p_nombre: this.nombreReset,
+          p_nuevo_pin: this.nuevoPin
+        });
+
+        this.nuevoPin = '';
+
+        if (this.nombreReset === this.sesion.nombre) {
+          this.borrarSesionLocal();
+          this.informar(
+            'PIN cambiado. Vuelve a iniciar sesión.'
+          );
+        } else {
+          this.informar('PIN cambiado correctamente');
+        }
+      });
+    },
+
+    async limpiar(tipo) {
+      if (!this.sesion?.admin) return;
+
+      const descripciones = {
+        propuestas: 'todas las propuestas de restaurantes',
+        fecha: 'la fecha oficial',
+        votos: 'todos los votos y el sorteo',
+        calendario: 'todas las disponibilidades',
+        todo: 'TODOS LOS DATOS DE LA CENA'
+      };
+
+      if (!Object.prototype.hasOwnProperty.call(
+        descripciones, tipo
+      )) return;
+
+      const confirmado = confirm(
+        '¿Seguro que quieres borrar ' +
+        descripciones[tipo] + '?\n\n' +
+        'Esta operación es definitiva y no se puede deshacer.\n' +
+        'Los amigos y sus PIN se conservarán.'
+      );
+
+      if (!confirmado) return;
+
+      if (tipo === 'todo') {
+        const segundaConfirmacion = prompt(
+          'Para confirmar el borrado completo, escribe BORRAR:'
+        );
+
+        if (segundaConfirmacion !== 'BORRAR') return;
+      }
+
+      await this.ejecutar(async () => {
+        await this.call('admin_limpiar_datos', {
+          p_tipo: tipo
+        });
+
+        this.destinatario = '';
+        this.regaloPendiente = false;
+        this.detalleFecha = '';
+
+        await this.cargarDatos();
+
+        this.informar(
+          'Datos borrados correctamente: ' +
+          descripciones[tipo]
+        );
+      });
+    }
+  },
+
+  mounted() {
+    if (this.sesion) {
+      this.ejecutar(() => this.cargarDatos());
+    }
+  }
+}).mount('#app');
+</script>
+</body>
+</html>
